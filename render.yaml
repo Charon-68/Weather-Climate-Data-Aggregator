@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: weather-climate-aggregator
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/geocode?q=Mumbai
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
