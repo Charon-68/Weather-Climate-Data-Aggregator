@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open Weather &amp; Climate Aggregator</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='%232563eb'/></svg>">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #ffffff; --ink: #1b2430; --muted: #5d6b7c; --line: #e3e8ef;
+    --accent: #2563eb; --ok: #15803d; --ok-bg: #dcfce7; --warn: #b45309; --warn-bg: #fef3c7;
+    --bad: #b91c1c; --bad-bg: #fee2e2; --idle-bg: #eef1f5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--bg); }
+  header { background: #fff; border-bottom: 1px solid var(--line); padding: 10px 18px; position: sticky; top: 0; z-index: 1000; }
+  .hrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: -0.01em; }
+  h1 small { font-weight: 500; color: var(--muted); font-size: 13px; margin-left: 6px; }
+  .spacer { flex: 1; }
+  .search { position: relative; display: flex; gap: 6px; }
+  .search input { width: 240px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+  button { padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button:hover { filter: brightness(0.97); }
+  #results { position: absolute; top: 38px; left: 0; width: 320px; background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); display: none; z-index: 2000; }
+  #results div { padding: 8px 10px; cursor: pointer; border-bottom: 1px solid var(--line); }
+  #results div:last-child { border-bottom: 0; }
+  #results div:hover { background: #f1f5ff; }
+  #results .sub { color: var(--muted); font-size: 12px; }
+  .loc { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+  .loc b { color: var(--ink); }
+  .toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
+  .links a { font-size: 13px; color: var(--accent); text-decoration: none; margin-left: 8px; }
+
+  .layout { display: grid; grid-template-columns: minmax(360px, 40%) 1fr; gap: 16px; padding: 16px 18px; }
+  .mapcol { position: sticky; top: 72px; height: calc(100vh - 90px); display: flex; flex-direction: column; gap: 8px; }
+  #map { flex: 1; border-radius: 12px; border: 1px solid var(--line); }
+  .maphint { font-size: 12px; color: var(--muted); }
+  .cards { display: grid; grid-template-columns: 1fr; gap: 16px; align-content: start; }
+  @media (min-width: 1700px) { .cards { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 950px) { .layout { grid-template-columns: 1fr; } .mapcol { position: static; height: 55vh; } }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+  .card-h { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+  .card h2 { font-size: 15px; margin: 0; }
+  .card .src { font-size: 12px; color: var(--muted); }
+  .meta { text-align: right; white-space: nowrap; }
+  .upd { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; background: var(--idle-bg); color: var(--muted); }
+  .badge.ok { background: var(--ok-bg); color: var(--ok); }
+  .badge.cached { background: var(--warn-bg); color: var(--warn); }
+  .badge.error { background: var(--bad-bg); color: var(--bad); }
+  .unavail { background: var(--bad-bg); color: var(--bad); padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+  .note { background: var(--warn-bg); color: var(--warn); padding: 6px 10px; border-radius: 8px; font-size: 12px; margin-bottom: 8px; }
+  .loading { color: var(--muted); padding: 20px 0; text-align: center; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin: 8px 0 10px; }
+  .kpi { background: #f7f9fc; border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+  .kpi .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .kpi .v { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .kpi .v small { font-size: 12px; font-weight: 500; color: var(--muted); }
+  .station { font-size: 13px; }
+  .station b { font-size: 14px; }
+  .raw { font: 11px/1.4 ui-monospace, Menlo, monospace; background: #f7f9fc; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; color: #334; word-break: break-all; }
+  .chart { position: relative; height: 210px; margin-top: 6px; }
+  .chart.sm { height: 180px; }
+  h3 { font-size: 13px; margin: 14px 0 2px; color: #334155; }
+  .cmp { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; margin: 6px 0; }
+  .cmp > div { flex: 1; min-width: 160px; border-radius: 8px; padding: 8px 10px; border: 1px solid var(--line); }
+  .cmp .now { background: #eff6ff; border-color: #bfdbfe; }
+  .cmp .norm { background: #f0fdf4; border-color: #bbf7d0; }
+  .cmp .anom { background: #fff7ed; border-color: #fed7aa; }
+  .cmp .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .cmp .v { font-size: 16px; font-weight: 600; }
+  .small { font-size: 12px; color: var(--muted); }
+  .sat-layer { border-left: 3px solid var(--accent); padding: 4px 10px; margin: 8px 0; }
+  .sat-layer b { font-size: 13px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  input[type=date] { padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+
+  footer { padding: 6px 18px 40px; }
+  footer .card { margin-bottom: 16px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .tablewrap { overflow-x: auto; }
+  details summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+  pre.arch { font: 12px/1.5 ui-monospace, Menlo, monospace; background: #f7f9fc; border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <h1>Open Weather &amp; Climate Aggregator <small>prototype</small></h1>
+    <form class="search" id="searchForm" autocomplete="off">
+      <input id="q" placeholder="Search a place (e.g. Delhi)" aria-label="Search place">
+      <button class="primary" type="submit">Search</button>
+      <div id="results"></div>
+    </form>
+    <span class="small">or click anywhere on the map</span>
+    <div class="loc">📍 <b id="locName">IIT Bombay</b> · <span id="locCoords"></span></div>
+    <div class="spacer"></div>
+    <label class="toggle" title="Skip live fetches and serve the disk cache, to demonstrate offline fallback">
+      <input type="checkbox" id="offline"> Simulate source outage
+    </label>
+    <button id="refresh" title="Refetch all sources">↻ Refresh</button>
+    <span class="links"><a id="rawLink" target="_blank">Raw JSON</a><a href="/docs" target="_blank">API docs</a></span>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="mapcol">
+    <div id="map"></div>
+    <div class="maphint">Layers: top-right control. Satellite imagery is loaded directly from NASA GIBS (WMTS). Blue dot = nearest METAR station.</div>
+  </div>
+
+  <div class="cards">
+    <section class="card" id="card-observations">
+      <div class="card-h">
+        <div><h2>1 · Ground observations</h2><div class="src">METAR surface reports · NOAA Aviation Weather Center</div></div>
+        <div class="meta"><span class="badge" id="badge-observations">…</span><div class="upd" id="upd-observations"></div></div>
+      </div>
+      <div id="body-observations" class="loading">Fetching…</div>
+    </section>
+
+    <section class="card" id="card-forecast">
+      <div class="card-h">
+        <div><h2>2 · NWP forecast</h2><div class="src">Open-Meteo · best-match blend + GFS / ECMWF IFS / ICON</div></div>
+        <div class="meta"><span class="badge" id="badge-forecast">…</span><div class="upd" id="upd-forecast"></div></div>
+      </div>
+      <div id="body-forecast" class="loading">Fetching…</div>
+    </section>
+
+    <section class="card" id="card-climatology">
+      <div class="card-h">
+        <div><h2>3 · Climatology</h2><div class="src">NASA POWER · monthly long-term means (MERRA-2, CERES)</div></div>
+        <div class="meta"><span class="badge" id="badge-climatology">…</span><div class="upd" id="upd-climatology"></div></div>
+      </div>
+      <div id="body-climatology" class="loading">Fetching…</div>
+    </section>
+
+    <section class="card" id="card-satellite">
+      <div class="card-h">
+        <div><h2>4 · Satellite observations</h2><div class="src">NASA GIBS (EOSDIS) · WMTS tiles, loaded in the browser</div></div>
+        <div class="meta"><span class="badge" id="badge-satellite">…</span><div class="upd" id="upd-satellite"></div></div>
+      </div>
+      <div class="row">
+        <label class="small" for="satDate">Imagery date (UTC):</label>
+        <input type="date" id="satDate">
+        <span class="small">Default: yesterday (today's swaths are often incomplete)</span>
+      </div>
+      <div id="body-satellite"></div>
+    </section>
+  </div>
+</div>
+
+<footer>
+  <section class="card">
+    <h2 style="font-size:15px;margin:0 0 8px">Data sources</h2>
+    <div class="tablewrap">
+    <table>
+      <thead><tr><th>Stream</th><th>Source / provider</th><th>Update frequency / latency</th><th>Format</th><th>License</th></tr></thead>
+      <tbody>
+        <tr><td>Ground observations</td><td>METAR via aviationweather.gov Data API (NOAA AWC; reports from IMD airport met offices)</td><td>Half-hourly / hourly, ~minutes latency</td><td>JSON (REST)</td><td>US Government work, public domain</td></tr>
+        <tr><td>NWP forecast</td><td>Open-Meteo Forecast API: best-match blend, NOAA GFS, ECMWF IFS 0.25°, DWD ICON</td><td>Models run every 3–12 h; 7-day hourly horizon</td><td>JSON (REST)</td><td>CC BY 4.0 (Open-Meteo); model data per provider terms</td></tr>
+        <tr><td>Climatology</td><td>NASA POWER Climatology API (MERRA-2 reanalysis + CERES SYN1deg)</td><td>Static long-term means (<span id="tblPeriod">2001–2025</span>)</td><td>JSON (REST)</td><td>NASA open data, no restrictions</td></tr>
+        <tr><td>Satellite</td><td>NASA GIBS WMTS: VIIRS NOAA-20 true color, GPM IMERG precipitation rate, Himawari-9 AHI Band 13 IR</td><td>VIIRS daily (~3 h NRT); IMERG daily (~1–2 day lag); Himawari 10-min</td><td>JPEG/PNG map tiles (WMTS, EPSG:3857)</td><td>NASA open data, attribution requested</td></tr>
+        <tr><td>Geocoding</td><td>Open-Meteo Geocoding API (GeoNames)</td><td>On demand</td><td>JSON (REST)</td><td>CC BY 4.0</td></tr>
+        <tr><td>Base map / labels</td><td>OpenStreetMap; Esri World Boundaries &amp; Places (reference labels)</td><td>Continuous</td><td>PNG tiles</td><td>ODbL; Esri attribution (non-commercial demo use)</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+  <section class="card">
+    <details>
+      <summary>Architecture</summary>
+<pre class="arch">
+ ┌──────────────── DATA SOURCES (free, no API keys) ─────────────────┐
+ │ aviationweather.gov   Open-Meteo NWP    NASA POWER     NASA GIBS  │
+ │   (METAR, JSON)       (GFS/ECMWF/ICON)  (climatology)  (WMTS)     │
+ └──────┬──────────────────────┬────────────────┬──────────────┬─────┘
+        │                      │                │              │ tiles fetched
+        ▼                      ▼                ▼              │ directly by browser
+ ┌──────────────── ADAPTERS  sources/*.py ─────────────┐       │
+ │ async fetch(lat, lon) → normalized envelope:        │       │
+ │ {source, status, fetched_at, units, data, error}    │       │
+ │ every exception caught; one failure never breaks UI │       │
+ └──────────────────────────┬──────────────────────────┘       │
+                            ▼                                  │
+ ┌──────────────── CACHE ──────────────────────────────┐       │
+ │ in-memory TTL (10 min)  +  disk  cache/*.json        │       │
+ │ live fails → serve disk copy, status = "cached"      │       │
+ └──────────────────────────┬──────────────────────────┘       │
+                            ▼                                  │
+ ┌──────────────── FastAPI (app.py) ───────────────────┐       │
+ │ /api/geocode  /api/forecast  /api/climatology       │       │
+ │ /api/observations  /api/all  (asyncio.gather)       │       │
+ └──────────────────────────┬──────────────────────────┘       │
+                            ▼                                  ▼
+ ┌──────────────── WEB UI  static/index.html  (Leaflet + Chart.js) ──┐
+ │ map + 4 stream cards + status badges (live / cached / unavailable)│
+ └────────────────────────────────────────────────────────────────────┘
+</pre>
+    </details>
+  </section>
+</footer>
+
+<script>
+"use strict";
+const DEFAULT = { lat: 19.1334, lon: 72.9133, name: "IIT Bombay" };
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MONTHS_FULL = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const COLORS = { tmax: "#dc2626", tmin: "#2563eb", tmean: "#7c3aed", precip: "#0ea5e9", dew: "#10b981", solar: "#f59e0b", wind: "#0f766e",
+                 gfs_seamless: "#2563eb", ecmwf_ifs025: "#dc2626", icon_seamless: "#16a34a" };
+const WX = { FU: "smoke", HZ: "haze", BR: "mist", FG: "fog", RA: "rain", DZ: "drizzle", TS: "thunderstorm", SH: "showers",
+             DU: "dust", SA: "sand", SN: "snow", "-": "light ", "+": "heavy ", VC: "vicinity ", GR: "hail", MI: "shallow ", BC: "patches " };
+
+let state = { ...DEFAULT };
+let lastData = null;
+let reqId = 0;
+const charts = {};
+
+Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+Chart.defaults.font.size = 11;
+Chart.defaults.color = "#5d6b7c";
+Chart.defaults.plugins.legend.labels.boxWidth = 12;
+
+// ---------- helpers ----------
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? "–" : Number(v).toFixed(d);
+const istParts = (d) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
+function fmtIST(iso) { if (!iso) return "–"; const d = new Date(iso); return isNaN(d) ? iso : istParts(d) + " IST"; }
+// Open-Meteo local times are IST without offset ("2026-11-25T14:00")
+const omDate = (s) => new Date(s.length <= 10 ? s + "T00:00+05:30" : s + "+05:30");
+const dayLabel = (s) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short" }).format(omDate(s));
+const hourLabel = (s) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", hour: "2-digit", hour12: false }).format(omDate(s)) + "h";
+const shortTime = (iso) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso));
+const curMonth = () => Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Kolkata", month: "numeric" }).format(new Date())) - 1;
+const mean = (a) => { const v = a.filter((x) => x !== null && x !== undefined); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
+const sum = (a) => a.filter((x) => x !== null && x !== undefined).reduce((s, x) => s + x, 0);
+function decodeWx(w) { if (!w) return null; return w.split(" ").map((tok) => { let out = ""; let t = tok; for (const k of ["+", "-", "VC", "MI", "BC"]) if (t.startsWith(k)) { out += WX[k]; t = t.slice(k.length); } for (let i = 0; i < t.length; i += 2) out += (WX[t.slice(i, i + 2)] || t.slice(i, i + 2)) + (i + 2 < t.length ? " " : ""); return out; }).join(", "); }
+function periodShort(p) { const m = /\((\w+)\s+(\d{4})\s*-\s*(\w+)\s+(\d{4})\)/.exec(p || ""); return m ? `${m[2]}–${m[4]}` : (p || "long-term"); }
+function compass(deg) { if (deg === null || deg === undefined || isNaN(deg)) return deg ?? "–"; return ["N","NE","E","SE","S","SW","W","NW"][Math.round(deg / 45) % 8]; }
+
+function makeChart(id, config) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+  const el = $(id); if (!el) return;
+  config.options = Object.assign({ responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false }, animation: { duration: 300 } }, config.options || {});
+  charts[id] = new Chart(el, config);
+}
+const axis = (title, extra = {}) => Object.assign({ title: { display: true, text: title }, grid: { color: "#eef1f5" } }, extra);
+
+function setBadge(name, status, fetchedAt) {
+  const b = $("badge-" + name);
+  const map = { ok: ["ok", "live"], cached: ["cached", "cached"], error: ["error", "unavailable"], loading: ["", "loading…"] };
+  const [cls, label] = map[status] || ["", status];
+  b.className = "badge " + cls; b.textContent = label;
+  $("upd-" + name).textContent = fetchedAt ? "Updated " + fmtIST(fetchedAt) : "";
+}
+function unavailable(name, err) {
+  $("body-" + name).className = "";
+  $("body-" + name).innerHTML = `<div class="unavail"><b>Unavailable.</b> ${esc(err || "Unknown error")}</div>`;
+}
+function cachedNote(res) { return res.status === "cached" ? `<div class="note">⚠ ${esc(res.error)}</div>` : ""; }
+
+// ---------- map ----------
+const map = L.map("map", { worldCopyJump: true }).setView([DEFAULT.lat, DEFAULT.lon], 7);
+const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
+const ymd = (d) => d.toISOString().slice(0, 10);
+const daysAgo = (n) => { const d = new Date(); d.setUTCDate(d.getUTCDate() - n); return ymd(d); };
+
+const SAT = {
+  viirs: { name: "VIIRS NOAA-20 true color (daily)", layer: "VIIRS_NOAA20_CorrectedReflectance_TrueColor", tms: "GoogleMapsCompatible_Level9", ext: "jpg", maxNative: 9, timed: true,
+           desc: "Corrected reflectance (bands M5/M4/M3) from the VIIRS instrument on NOAA-20 (JPSS-1), polar orbit, ~1:30 pm local overpass. ~375 m–750 m resolution. Clouds appear white, smoke/haze grey-brown." },
+  imerg: { name: "GPM IMERG precipitation rate (daily)", layer: "IMERG_Precipitation_Rate", tms: "GoogleMapsCompatible_Level6", ext: "png", maxNative: 6, timed: true, lagDays: 2, opacity: 0.6,
+           desc: "NASA GPM IMERG (Integrated Multi-satellitE Retrievals for GPM) early-run precipitation rate, merging passive-microwave + geo-IR, 0.1° grid. Blue = light, yellow/red = heavy (mm/hr). Daily product lags ~1–2 days." },
+  hima:  { name: "Himawari-9 IR Band 13 (latest, 10-min)", layer: "Himawari_AHI_Band13_Clean_Infrared", tms: "GoogleMapsCompatible_Level6", ext: "png", maxNative: 6, timed: false, opacity: 0.55,
+           desc: "JMA Himawari-9 AHI 10.4 µm 'clean' IR brightness temperature, latest 10-minute scan (geostationary, 140.7°E). Cold cloud tops are bright. Coverage best east of ~75°E; western India is at the disk edge." },
+};
+function gibsUrl(s, date) { const t = s.timed ? (s.lagDays && date > daysAgo(s.lagDays) ? daysAgo(s.lagDays) : date) : "default"; return { url: `${GIBS}/${s.layer}/default/${t}/${s.tms}/{z}/{y}/{x}.${s.ext}`, used: s.timed ? t : "latest" }; }
+
+const tileStats = {};
+function trackTiles(key, layer) {
+  tileStats[key] = { ok: 0, err: 0 };
+  layer.on("tileload", () => { tileStats[key].ok++; scheduleSatRender(); });
+  layer.on("tileerror", () => { tileStats[key].err++; scheduleSatRender(); });
+}
+const satLayers = {};
+for (const [k, s] of Object.entries(SAT)) {
+  satLayers[k] = L.tileLayer("", { maxNativeZoom: s.maxNative, maxZoom: 12, opacity: s.opacity ?? 1, attribution: 'Imagery: <a href="https://earthdata.nasa.gov/gibs" target="_blank">NASA GIBS</a>' });
+  trackTiles(k, satLayers[k]);
+}
+const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors' });
+const labels = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: 'Labels &copy; Esri' });
+
+satLayers.viirs.addTo(map); labels.addTo(map);
+L.control.layers(
+  { [SAT.viirs.name]: satLayers.viirs, "OpenStreetMap": osm },
+  { [SAT.imerg.name]: satLayers.imerg, [SAT.hima.name]: satLayers.hima, "Borders & place labels": labels },
+  { collapsed: window.innerWidth < 1100 }
+).addTo(map);
+L.control.scale({ metric: true, imperial: false }).addTo(map);
+
+const marker = L.marker([DEFAULT.lat, DEFAULT.lon]).addTo(map);
+let stationLayer = L.layerGroup().addTo(map);
+
+map.on("click", (e) => selectLocation(e.latlng.lat, e.latlng.lng, "Map selection"));
+map.on("baselayerchange overlayadd overlayremove", () => renderSatellite());
+
+function setSatDate(date) {
+  for (const [k, s] of Object.entries(SAT)) satLayers[k].setUrl(gibsUrl(s, date).url);
+  for (const k of Object.keys(tileStats)) tileStats[k] = { ok: 0, err: 0 };
+  renderSatellite();
+}
+$("satDate").value = daysAgo(1);
+$("satDate").max = ymd(new Date());
+$("satDate").addEventListener("change", (e) => setSatDate(e.target.value || daysAgo(1)));
+
+let satTimer = null;
+function scheduleSatRender() { clearTimeout(satTimer); satTimer = setTimeout(renderSatellite, 400); }
+function renderSatellite() {
+  const date = $("satDate").value || daysAgo(1);
+  const active = Object.keys(SAT).filter((k) => map.hasLayer(satLayers[k]));
+  let ok = 0, err = 0;
+  active.forEach((k) => { ok += tileStats[k].ok; err += tileStats[k].err; });
+  const status = active.length === 0 ? "loading" : (ok === 0 && err > 0 ? "error" : "ok");
+  setBadge("satellite", status === "loading" ? "loading" : status, new Date().toISOString());
+  if (active.length === 0) $("badge-satellite").textContent = "no sat layer";
+  $("body-satellite").innerHTML = (active.length ? active.map((k) => {
+    const s = SAT[k], used = gibsUrl(s, date).used, st = tileStats[k];
+    return `<div class="sat-layer"><b>${esc(s.name)}</b><div class="small">Date/time: <b>${esc(used)}</b>${s.lagDays && used !== date ? " (latest available; product lags)" : ""} · GIBS layer <code>${esc(s.layer)}</code> · ${st.ok} tiles loaded${st.err ? `, <span style="color:var(--bad)">${st.err} failed</span>` : ""}</div><div style="font-size:13px;margin-top:3px">${esc(s.desc)}</div></div>`;
+  }).join("") : `<p class="small">No satellite layer active. Pick one in the map's layer control (top-right).</p>`) +
+  `<p class="small">Tip: toggle <b>${esc(SAT.imerg.name)}</b> and <b>${esc(SAT.hima.name)}</b> in the map's layer control.</p>`;
+}
+
+// ---------- search ----------
+$("searchForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const q = $("q").value.trim(); if (!q) return;
+  const box = $("results");
+  box.style.display = "block"; box.innerHTML = `<div class="sub">Searching…</div>`;
+  try {
+    const r = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`).then((x) => x.json());
+    const res = r.data?.results || [];
+    if (r.status !== "ok") { box.innerHTML = `<div class="sub">Geocoding unavailable: ${esc(r.error)}</div>`; return; }
+    if (!res.length) { box.innerHTML = `<div class="sub">No matches for “${esc(q)}”</div>`; return; }
+    if (res.length === 1) { box.style.display = "none"; return pick(res[0]); }
+    box.innerHTML = res.map((x, i) => `<div data-i="${i}"><b>${esc(x.name)}</b><div class="sub">${esc([x.admin1, x.country].filter(Boolean).join(", "))} · ${fmt(x.lat, 2)}, ${fmt(x.lon, 2)}</div></div>`).join("");
+    box.querySelectorAll("[data-i]").forEach((el) => el.addEventListener("click", () => { box.style.display = "none"; pick(res[+el.dataset.i]); }));
+  } catch (err) { box.innerHTML = `<div class="sub">Search failed: ${esc(err.message)}</div>`; }
+});
+document.addEventListener("click", (e) => { if (!$("searchForm").contains(e.target)) $("results").style.display = "none"; });
+function pick(x) { selectLocation(x.lat, x.lon, [x.name, x.admin1].filter(Boolean).join(", "), true); }
+
+$("offline").addEventListener("change", () => loadAll());
+$("refresh").addEventListener("click", () => loadAll());
+
+// ---------- main flow ----------
+function selectLocation(lat, lon, name, fly = false) {
+  lon = ((lon + 540) % 360) - 180; // wrap
+  state = { lat: +lat.toFixed(4), lon: +lon.toFixed(4), name };
+  marker.setLatLng([state.lat, state.lon]);
+  if (fly) map.flyTo([state.lat, state.lon], 8, { duration: 0.8 });
+  loadAll();
+}
+
+async function loadAll() {
+  const id = ++reqId;
+  $("locName").textContent = state.name;
+  $("locCoords").textContent = `${state.lat.toFixed(4)}°, ${state.lon.toFixed(4)}°`;
+  const qs = `lat=${state.lat}&lon=${state.lon}${$("offline").checked ? "&offline=true" : ""}`;
+  $("rawLink").href = `/api/all?${qs}`;
+  for (const n of ["observations", "forecast", "climatology"]) {
+    setBadge(n, "loading");
+    $("body-" + n).className = "loading"; $("body-" + n).textContent = "Fetching…";
+  }
+  stationLayer.clearLayers();
+  let all;
+  try {
+    all = await fetch(`/api/all?${qs}`).then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); });
+  } catch (err) {
+    if (id !== reqId) return;
+    for (const n of ["observations", "forecast", "climatology"]) { setBadge(n, "error"); unavailable(n, "Backend unreachable: " + err.message); }
+    return;
+  }
+  if (id !== reqId) return; // a newer request superseded this one
+  lastData = all;
+  const S = all.sources;
+  for (const [n, fn] of [["observations", renderObs], ["forecast", renderForecast], ["climatology", renderClim]]) {
+    const res = S[n];
+    setBadge(n, res.status, res.fetched_at);
+    try {
+      if (res.status === "error" || !res.data) unavailable(n, res.error);
+      else { $("body-" + n).className = ""; fn(res); }
+    } catch (err) { console.warn(n, err); unavailable(n, "Render error: " + err.message); }
+  }
+  try { renderComparison(S.forecast, S.climatology); } catch (err) { console.warn(err); }
+}
+
+// ---------- card renderers ----------
+function renderObs(res) {
+  const d = res.data, s = d.station, o = d.latest;
+  const vis = o.visibility_km === null ? "–" : (o.visibility_plus ? "≥ " : "") + fmt(o.visibility_km, 1);
+  const wx = decodeWx(o.weather);
+  $("body-observations").innerHTML = `${cachedNote(res)}
+    <div class="station"><b>${esc(s.name || s.icao)}</b> (${esc(s.icao)}) · <b>${fmt(s.distance_km, 1)} km</b> from selected point · elev ${esc(s.elevation_m ?? "–")} m<br>
+    <span class="small">Observed ${fmtIST(o.obs_time_ist)} · ${d.nearby.length} station(s) reporting in the area${d.method !== "bbox" ? " · via " + esc(d.method) : ""}</span></div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Temperature</div><div class="v">${fmt(o.temp, 0)} <small>°C</small></div></div>
+      <div class="kpi"><div class="l">Dew point</div><div class="v">${fmt(o.dewpoint, 0)} <small>°C</small></div></div>
+      <div class="kpi"><div class="l">Rel. humidity</div><div class="v">${fmt(o.rh, 0)} <small>%</small></div></div>
+      <div class="kpi"><div class="l">Wind</div><div class="v">${esc(compass(o.wind_dir))} ${fmt(o.wind_kmh, 0)} <small>km/h</small></div><div class="small">${esc(o.wind_dir ?? "–")}° · ${fmt(o.wind_kt, 0)} kt${o.gust_kt ? " G" + esc(o.gust_kt) : ""}</div></div>
+      <div class="kpi"><div class="l">Visibility</div><div class="v">${vis} <small>km</small></div></div>
+      <div class="kpi"><div class="l">Pressure (QNH)</div><div class="v">${fmt(o.pressure_hpa, 0)} <small>hPa</small></div></div>
+      <div class="kpi"><div class="l">Weather / sky</div><div class="v" style="font-size:14px">${esc(wx || "none")}</div><div class="small">${esc(o.clouds || "")}</div></div>
+    </div>
+    <div class="raw">${esc(o.raw)}</div>
+    <h3>Last 24 h at ${esc(s.icao)} (IST)</h3>
+    <div class="chart sm"><canvas id="c-obs"></canvas></div>`;
+  makeChart("c-obs", {
+    type: "line",
+    data: { labels: d.series.map((p) => shortTime(p.time_ist)), datasets: [
+      { label: "Temperature (°C)", data: d.series.map((p) => p.temp), borderColor: COLORS.tmax, backgroundColor: COLORS.tmax, tension: 0.3, pointRadius: 2 },
+      { label: "Dew point (°C)", data: d.series.map((p) => p.dewpoint), borderColor: COLORS.dew, backgroundColor: COLORS.dew, tension: 0.3, pointRadius: 2 } ] },
+    options: { scales: { x: axis("Time (IST)", { ticks: { maxTicksLimit: 12 } }), y: axis("°C") } },
+  });
+  stationLayer.clearLayers();
+  L.polyline([[state.lat, state.lon], [s.lat, s.lon]], { color: "#1d4ed8", weight: 2, dashArray: "5 5" }).addTo(stationLayer);
+  L.circleMarker([s.lat, s.lon], { radius: 8, color: "#fff", weight: 2, fillColor: "#1d4ed8", fillOpacity: 1 })
+    .bindTooltip(`${s.icao} · ${fmt(o.temp, 0)} °C · ${fmt(s.distance_km, 1)} km`, { permanent: true, direction: "right", offset: [8, 0] }).addTo(stationLayer);
+}
+
+function renderForecast(res) {
+  const d = res.data, u = res.units, c = d.current || {}, dl = d.daily;
+  const m = d.models;
+  const modelNote = !m ? `<p class="small">Model comparison unavailable: ${esc(d.models_error)}</p>` :
+    (Object.keys(m.dropped || {}).length ? `<p class="small">Dropped models: ${esc(Object.entries(m.dropped).map(([k, v]) => k + " (" + v + ")").join("; "))}</p>` : "");
+  $("body-forecast").innerHTML = `${cachedNote(res)}
+    <div class="cmp" id="cmp"></div>
+    <div class="small">Grid point ${fmt(d.grid_lat, 2)}°, ${fmt(d.grid_lon, 2)}° · model elevation ${fmt(d.elevation_m, 0)} m · current values valid ${c.time ? fmtIST(omDate(c.time)) : "–"}</div>
+    <h3>7-day outlook: daily max / min temperature and precipitation</h3>
+    <div class="chart"><canvas id="c-daily"></canvas></div>
+    <h3>Model comparison: hourly 2 m temperature (GFS vs ECMWF vs ICON)</h3>
+    ${modelNote}
+    <div class="chart"><canvas id="c-models"></canvas></div>`;
+  makeChart("c-daily", {
+    data: { labels: dl.time.map(dayLabel), datasets: [
+      { type: "line", label: `Max temp (${u.daily?.temperature_2m_max || "°C"})`, data: dl.temperature_2m_max, borderColor: COLORS.tmax, backgroundColor: COLORS.tmax, yAxisID: "y", tension: 0.3 },
+      { type: "line", label: `Min temp (${u.daily?.temperature_2m_min || "°C"})`, data: dl.temperature_2m_min, borderColor: COLORS.tmin, backgroundColor: COLORS.tmin, yAxisID: "y", tension: 0.3 },
+      { type: "bar", label: `Precipitation (${u.daily?.precipitation_sum || "mm"})`, data: dl.precipitation_sum, backgroundColor: COLORS.precip + "99", yAxisID: "y1" } ] },
+    options: { scales: { x: axis("Date (IST)"), y: axis("Temperature (°C)", { position: "left" }), y1: axis("Precipitation (mm/day)", { position: "right", beginAtZero: true, suggestedMax: 5, grid: { drawOnChartArea: false } }) } },
+  });
+  if (m && m.time) {
+    makeChart("c-models", {
+      type: "line",
+      data: { labels: m.time.map(hourLabel), datasets: Object.entries(m.series).map(([k, s]) => ({
+        label: s.label, data: s.temperature_2m, borderColor: COLORS[k] || "#666", backgroundColor: COLORS[k] || "#666", pointRadius: 0, borderWidth: 1.6, tension: 0.2 })) },
+      options: { scales: { x: axis("Time (IST)", { ticks: { maxTicksLimit: 8, maxRotation: 0 } }), y: axis("Temperature (°C)") } },
+    });
+  }
+}
+
+function renderClim(res) {
+  const d = res.data, p = d.params, u = res.units, cm = curMonth();
+  const hl = (base, strong) => d.months.map((_, i) => i === cm ? strong : base);
+  $("tblPeriod").textContent = periodShort(d.period);
+  $("body-climatology").innerHTML = `${cachedNote(res)}
+    <div class="small">Averaging period: <b>${esc(d.period || "n/a")}</b> · datasets: ${esc((d.datasets || []).join(", "))} · POWER API ${esc(d.api_version || "")}</div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">${MONTHS_FULL[cm]} mean temp</div><div class="v">${fmt(p.T2M.monthly[cm])} <small>°C</small></div><div class="small">min ${fmt(p.T2M_MIN.monthly[cm])} / max ${fmt(p.T2M_MAX.monthly[cm])} °C</div></div>
+      <div class="kpi"><div class="l">${MONTHS_FULL[cm]} rainfall</div><div class="v">${fmt(p.PRECIP_MONTH_MM.monthly[cm], 0)} <small>mm</small></div><div class="small">${fmt(p.PRECTOTCORR.monthly[cm], 2)} mm/day</div></div>
+      <div class="kpi"><div class="l">${MONTHS_FULL[cm]} solar (GHI)</div><div class="v">${fmt(p.ALLSKY_SFC_SW_DWN.monthly[cm], 2)} <small>kWh/m²/d</small></div></div>
+      <div class="kpi"><div class="l">${MONTHS_FULL[cm]} wind @10 m</div><div class="v">${fmt(p.WS10M.monthly[cm], 1)} <small>m/s</small></div></div>
+      <div class="kpi"><div class="l">Annual</div><div class="v">${fmt(p.T2M.annual)} <small>°C</small></div><div class="small">${fmt(p.PRECIP_MONTH_MM.annual, 0)} mm/yr · ${fmt(p.ALLSKY_SFC_SW_DWN.annual, 2)} kWh/m²/d</div></div>
+    </div>
+    <h3>Monthly normals: temperature and precipitation (current month highlighted)</h3>
+    <div class="chart"><canvas id="c-clim"></canvas></div>
+    <h3>Renewable-energy resource: solar irradiance and 10 m wind speed</h3>
+    <div class="chart sm"><canvas id="c-re"></canvas></div>`;
+  const labels = MONTHS.map((m, i) => i === cm ? `▶ ${m}` : m);
+  makeChart("c-clim", {
+    data: { labels, datasets: [
+      { type: "line", label: "Mean T2M (°C)", data: p.T2M.monthly, borderColor: COLORS.tmean, backgroundColor: COLORS.tmean, yAxisID: "y", tension: 0.3, pointRadius: hl(2, 6) },
+      { type: "line", label: "Max T2M (°C)", data: p.T2M_MAX.monthly, borderColor: COLORS.tmax, backgroundColor: COLORS.tmax, yAxisID: "y", borderDash: [4, 3], tension: 0.3, pointRadius: hl(0, 4) },
+      { type: "line", label: "Min T2M (°C)", data: p.T2M_MIN.monthly, borderColor: COLORS.tmin, backgroundColor: COLORS.tmin, yAxisID: "y", borderDash: [4, 3], tension: 0.3, pointRadius: hl(0, 4) },
+      { type: "bar", label: "Precipitation (mm/month)", data: p.PRECIP_MONTH_MM.monthly, backgroundColor: hl(COLORS.precip + "66", COLORS.precip), yAxisID: "y1" } ] },
+    options: { scales: { x: axis("Month"), y: axis("Temperature (°C)"), y1: axis("Precipitation (mm/month)", { position: "right", beginAtZero: true, grid: { drawOnChartArea: false } }) } },
+  });
+  makeChart("c-re", {
+    data: { labels, datasets: [
+      { type: "bar", label: `All-sky surface shortwave (${u.ALLSKY_SFC_SW_DWN || "kWh/m²/day"})`, data: p.ALLSKY_SFC_SW_DWN.monthly, backgroundColor: hl(COLORS.solar + "77", COLORS.solar), yAxisID: "y" },
+      { type: "line", label: `Wind speed 10 m (${u.WS10M || "m/s"})`, data: p.WS10M.monthly, borderColor: COLORS.wind, backgroundColor: COLORS.wind, yAxisID: "y1", tension: 0.3, pointRadius: hl(2, 6) } ] },
+    options: { scales: { x: axis("Month"), y: axis("Irradiance (kWh/m²/day)", { beginAtZero: true }), y1: axis("Wind speed (m/s)", { position: "right", beginAtZero: true, grid: { drawOnChartArea: false } }) } },
+  });
+}
+
+function renderComparison(fc, cl) {
+  const el = $("cmp"); if (!el || !fc?.data) return;
+  const c = fc.data.current || {}, dl = fc.data.daily, cm = curMonth();
+  const now = `<div class="now"><div class="l">Now (forecast model)</div><div class="v">${fmt(c.temperature_2m)} °C</div><div class="small">RH ${fmt(c.relative_humidity_2m, 0)}% · wind ${fmt(c.wind_speed_10m, 1)} km/h · cloud ${fmt(c.cloud_cover, 0)}%</div></div>`;
+  if (!cl?.data) { el.innerHTML = now + `<div class="norm"><div class="l">This month normally</div><div class="v">–</div><div class="small">Climatology unavailable</div></div>`; return; }
+  const p = cl.data.params;
+  const nT = p.T2M.monthly[cm], nP = p.PRECIP_MONTH_MM.monthly[cm];
+  const wkMean = mean(dl.temperature_2m_max.map((x, i) => (x + dl.temperature_2m_min[i]) / 2));
+  const wkP = sum(dl.precipitation_sum), nP7 = p.PRECTOTCORR.monthly[cm] * dl.time.length;
+  const an = wkMean !== null && nT !== null ? wkMean - nT : null;
+  el.innerHTML = now +
+    `<div class="norm"><div class="l">This month normally (${MONTHS_FULL[cm]})</div><div class="v">${fmt(nT)} °C, ${fmt(nP, 0)} mm</div><div class="small">NASA POWER normal, ${esc(periodShort(cl.data.period))}</div></div>` +
+    `<div class="anom"><div class="l">Next 7 days vs normal</div><div class="v" style="color:${an > 0 ? "#b91c1c" : "#1d4ed8"}">${an === null ? "–" : (an > 0 ? "+" : "") + fmt(an)} °C</div><div class="small">7-day mean ${fmt(wkMean)} °C · rain ${fmt(wkP)} mm vs ~${fmt(nP7)} mm normal</div></div>`;
+}
+
+// ---------- boot ----------
+setSatDate(daysAgo(1));
+selectLocation(DEFAULT.lat, DEFAULT.lon, DEFAULT.name);
+</script>
+</body>
+</html>
